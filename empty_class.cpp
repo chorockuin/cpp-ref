@@ -168,10 +168,96 @@ void tag_dispatching_in_std() {
     delete[] p2;
 }
 
+class Data1 {
+    Empty e;
+    int data;
+};
+
+class Data2 : public Empty {
+    int data;
+};
+
+// Empty Base Class Optimization
+void ebco() {
+    // 1byte(Empty e) + 3byte padding + 4byte(int) = 8byte
+    std::cout << sizeof(Data1) << std::endl;
+    // Empty Class가 Base Class가 되면 최적화 됨
+    // 1byte(Empty e)는 사라지고, 그냥 4byte(int)만 남음
+    std::cout << sizeof(Data2) << std::endl;
+}
+
+// 아래와 같이 만들면 T1이 empty class의 경우
+// 1byte + 3byte(padding) 공간이 낭비되므로,
+// ebco를 활용해서 최적화 시킨다
+// template<typename T1, typename T2>
+// struct PAIR {
+//     T1 first;
+//     T2 second;
+// };
+
+// ebco 적용해 최적화
+// boost::compressed_pair 라는 라이브러리에서 이런 트릭을 사용하고 있음
+template<typename T1, typename T2, bool = std::is_empty_v<T1>>
+struct PAIR;
+
+template <typename T1, typename T2>
+struct PAIR<T1, T2, false> {
+    T1 first;
+    T2 second;
+};
+
+template <typename T1, typename T2>
+struct PAIR<T1, T2, true> : public T1 {
+    T2 second;
+};
+
+void ebco1() {
+    PAIR<int, int> p1; // <int, int, false>
+    PAIR<Empty, int> p2; // <Empty, int, true>
+
+    // 4 + 4 = 8byte
+    std::cout << sizeof(p1) << std::endl;
+    // 원래 1(empty) + 3(padding) + 4 = 8byte 이어야 하는데
+    // ebco를 활용해서 1(empty) + 3(padding)을 제거할 수 있었다
+    std::cout << sizeof(p2) << std::endl;
+}
+
+template<typename T1, typename T2, bool = std::is_empty_v<T1>>
+struct compressed_pair;
+
+template<typename T1, typename T2>
+struct compressed_pair<T1, T2, false> {
+    T1 first;
+    T2 second;
+
+    T1& getFirst() {return first;}
+    T2& getSecond() {return second;}
+    const T1& getFirst() const {return first;}
+    const T2& getSecond() const {return second;}
+
+    // 이렇게 const ref로 인자를 받으면 move를 지원하지 못하므로
+    // compressed_pair(const T1& f, const T2& s) : first(f), second(s) {}
+    
+    // 이렇게 바꿔준다
+    template<typename F, typename S>
+    compressed_pair(F&& f, S&& s) 
+    : first(std::forward<F>(f)), second(std::forward<S>(s)) {}
+};
+
+void ebco_compressed_pair() {
+    compressed_pair<int, int> p1(3, 4);
+    std::string s1 = "AAA";
+    std::string s2 = "BBB";
+    compressed_pair<std::string, std::string> p2(std::move(s1), std::move(s2));
+}
+
 void empty_class() {
     basic();
     empty_class1();
     empty_class2();
     tag_dispatching();
     tag_dispatching_in_std();
+    ebco();
+    ebco1();
+    ebco_compressed_pair();
 }
