@@ -222,6 +222,17 @@ void ebco1() {
     std::cout << sizeof(p2) << std::endl;
 }
 
+class Point {
+    int x{0};
+    int y{0};
+public:
+    Point() = default;
+    Point(int x, int y) : x(x), y(y) {}
+};
+
+struct one_and_variadic_arg_t {}; // 인자 1개 + 나머지 가변 인자
+struct zero_and_variadic_arg_t {}; // 가변인자만
+
 template<typename T1, typename T2, bool = std::is_empty_v<T1>>
 struct compressed_pair;
 
@@ -235,20 +246,33 @@ struct compressed_pair<T1, T2, false> {
     const T1& getFirst() const {return first;}
     const T2& getSecond() const {return second;}
 
-    // 이렇게 const ref로 인자를 받으면 move를 지원하지 못하므로
+    // 이렇게 생성자가 const ref로 인자를 받으면 move를 지원하지 못하므로
     // compressed_pair(const T1& f, const T2& s) : first(f), second(s) {}
     
     // 이렇게 바꿔준다
     template<typename F, typename S>
     compressed_pair(F&& f, S&& s) 
     : first(std::forward<F>(f)), second(std::forward<S>(s)) {}
+
+    // 가변인자(...) 템플릿을 활용
+    template<typename F, typename ... S>
+    compressed_pair(one_and_variadic_arg_t, F&& f, S&& ... s) 
+    : first(std::forward<F>(f)), second(std::forward<S>(s)...) {}
+
+    // 가변인자 템플릿을 활용
+    template<typename ... S>
+    compressed_pair(zero_and_variadic_arg_t, S&& ... s) 
+    : first(), second(std::forward<S>(s)...) {}
 };
 
 void ebco_compressed_pair() {
     compressed_pair<int, int> p1(3, 4);
     std::string s1 = "AAA";
     std::string s2 = "BBB";
-    compressed_pair<std::string, std::string> p2(std::move(s1), std::move(s2));
+    compressed_pair<std::string, std::string> cp1(std::move(s1), std::move(s2));
+    compressed_pair<int, Point> cp2(one_and_variadic_arg_t{}, 1, Point(0,0));
+    compressed_pair<int, Point> cp3(one_and_variadic_arg_t{}, 1, 0, 0); // 가변인자 템플릿 활용
+    compressed_pair<int, Point> cp4(zero_and_variadic_arg_t{}, 0, 0); // 이렇게 fisrt를 empty로 하고, second 인자만 넘기고 싶을 때
 }
 
 void empty_class() {

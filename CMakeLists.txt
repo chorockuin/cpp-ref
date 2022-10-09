@@ -2,7 +2,7 @@
 cmake_minimum_required(VERSION 3.0)
  
 # 프로젝트 이름 및 버전
-project("cpp20")
+project("cpp-ref")
 set(PROJECT_VERSION_MAJOR 0)
 set(PROJECT_VERSION_MINOR 1)
 set(PROJECT_VERSION_PATCH 0)
@@ -12,11 +12,11 @@ set(CMAKE_BUILD_TYPE Debug)
 set(CMAKE_VERBOSE_MAKEFILE true)
  
 # 빌드 대상 바이너리 파일명 및 소스 파일 목록
-file(GLOB CPP20_SRC_FILES
+file(GLOB SRC_FILES
      "*.h"
      "*.cpp"
 )
-set(CPP20_TARGET_FILE
+set(TARGET_FILE
      "${CMAKE_PROJECT_NAME}-${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_VERSION_PATCH}"
 )
 
@@ -55,4 +55,4 @@ SET (CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BUILD_TYPE}/lib)
 SET (CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BUILD_TYPE}/lib)
 
 # 빌드 대상 바이너리 추가
-add_executable(${CPP20_TARGET_FILE} ${CPP20_SRC_FILES})
+add_executable(${TARGET_FILE} ${SRC_FILES})
