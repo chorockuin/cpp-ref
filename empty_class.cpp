@@ -233,7 +233,8 @@ public:
 struct one_and_variadic_arg_t {}; // 인자 1개 + 나머지 가변 인자
 struct zero_and_variadic_arg_t {}; // 가변인자만
 
-template<typename T1, typename T2, bool = std::is_empty_v<T1>>
+// 만약 Empty class가 상속을 할 수 없는 final class라고 하면, 에러 내지말고 그냥 이 버전을 사용하도록 하기 위해 is_final_v 조건을 넣는다
+template<typename T1, typename T2, bool = std::is_empty_v<T1> && !std::is_final_v<T1>>
 struct compressed_pair;
 
 template<typename T1, typename T2>
@@ -241,28 +242,54 @@ struct compressed_pair<T1, T2, false> {
     T1 first;
     T2 second;
 
-    T1& getFirst() {return first;}
-    T2& getSecond() {return second;}
-    const T1& getFirst() const {return first;}
-    const T2& getSecond() const {return second;}
+    // compile time에 활용하기 위해 constexpr 키워드를 붙인다
+    // 예외가 없다면 noexcept를 붙이는 것이 좋다
+    constexpr T1& getFirst() noexcept {return first;}
+    constexpr T2& getSecond() noexcept {return second;}
+    constexpr const T1& getFirst() const noexcept {return first;}
+    constexpr const T2& getSecond() const noexcept {return second;}
 
     // 이렇게 생성자가 const ref로 인자를 받으면 move를 지원하지 못하므로
     // compressed_pair(const T1& f, const T2& s) : first(f), second(s) {}
     
     // 이렇게 바꿔준다
+    // 그런데, 아래 one_and_variadic_arg_t, zero_and_variadic_arg_t가 추가된 생성자를 정의하면 생성자 정의가 중복 될 수 있으므로 체크해 두자
     template<typename F, typename S>
-    compressed_pair(F&& f, S&& s) 
+    constexpr compressed_pair(F&& f, S&& s) noexcept(std::conjunction_v<std::is_nothrow_constructible<T1, F>, std::is_nothrow_constructible<T2, S>>)
     : first(std::forward<F>(f)), second(std::forward<S>(s)) {}
 
-    // 가변인자(...) 템플릿을 활용
+    // second 인자에 가변인자 템플릿을 활용
     template<typename F, typename ... S>
-    compressed_pair(one_and_variadic_arg_t, F&& f, S&& ... s) 
+    // noexcept 안에 조건을 넣을 수가 있는데 T1을 F로 생성할 때 예외가 없고, T2를 S로 생성할 때 예외가 없는 경우에만 실제 예외가 없는 것이므로, 아래와 같이 적어준다
+    constexpr compressed_pair(one_and_variadic_arg_t, F&& f, S&& ... s) noexcept(std::conjunction_v<std::is_nothrow_constructible<T1, F>, std::is_nothrow_constructible<T2, S...>>)
     : first(std::forward<F>(f)), second(std::forward<S>(s)...) {}
 
-    // 가변인자 템플릿을 활용
+    // first 인자를 생략하고, second 인자에만 가변인자 템플릿을 활용
     template<typename ... S>
-    compressed_pair(zero_and_variadic_arg_t, S&& ... s) 
+    // noexcept 안에 조건을 넣을 수가 있는데 T1을 디폴트로 생성할 때 예외가 없고, T2를 S로 생성할 때 예외가 없는 경우에만 실제 예외가 없는 것이므로, 아래와 같이 적어준다
+    constexpr compressed_pair(zero_and_variadic_arg_t, S&& ... s) noexcept(std::conjunction_v<std::is_nothrow_default_constructible<T1>, std::is_nothrow_constructible<T2, S...>>)
     : first(), second(std::forward<S>(s)...) {}
+};
+
+template<typename T1, typename T2>
+struct compressed_pair<T1, T2, true> : public T1 {
+    T2 second;
+
+    constexpr T1& getFirst() noexcept {return *this;}
+    constexpr T2& getSecond() noexcept {return second;}
+    constexpr const T1& getFirst() const noexcept {return *this;}
+    constexpr const T2& getSecond() const noexcept {return second;}
+
+    // second 인자에 가변인자 템플릿을 활용
+    template<typename F, typename ... S>
+    constexpr compressed_pair(one_and_variadic_arg_t, F&& f, S&& ... s) noexcept(std::conjunction_v<std::is_nothrow_constructible<T1, F>, std::is_nothrow_constructible<T2, S...>>)
+    : T1(std::forward<F>(f)), second(std::forward<S>(s)...) {}
+
+    // first 인자를 생략하고, second 인자에만 가변인자 템플릿을 활용
+    template<typename ... S>
+    // noexcept 안에 조건을 넣을 수가 있는데 T1을 디폴트로 생성할 때 예외가 없고, T2를 S로 생성할 때 예외가 없는 경우에만 실제 예외가 없는 것이므로, 아래와 같이 적어준다
+    constexpr compressed_pair(zero_and_variadic_arg_t, S&& ... s) noexcept(std::conjunction_v<std::is_nothrow_default_constructible<T1>, std::is_nothrow_constructible<T2, S...>>)
+    : T1(), second(std::forward<S>(s)...) {}
 };
 
 void ebco_compressed_pair() {
@@ -272,7 +299,38 @@ void ebco_compressed_pair() {
     compressed_pair<std::string, std::string> cp1(std::move(s1), std::move(s2));
     compressed_pair<int, Point> cp2(one_and_variadic_arg_t{}, 1, Point(0,0));
     compressed_pair<int, Point> cp3(one_and_variadic_arg_t{}, 1, 0, 0); // 가변인자 템플릿 활용
-    compressed_pair<int, Point> cp4(zero_and_variadic_arg_t{}, 0, 0); // 이렇게 fisrt를 empty로 하고, second 인자만 넘기고 싶을 때
+    // fisrt를 생략하고, second 인자만 넘기고 싶을 때
+    // one_and_variadic_arg_t{} 을 사용해버리면, 가변인자 템플릿을 활용한 생성자가 선택되어 버린다
+    // 따라서 second 인자만 가변으로 받는 생성자를 지정해서 호출하기 위해
+    // zero_and_variadic_arg_t{} empty class를 사용한다
+    compressed_pair<int, Point> cp4(zero_and_variadic_arg_t{}, 0, 0);
+    // compressed_pair<int, int> cp5(zero_and_variadic_arg_t{}, 1); // 생성자 정의가 중복되는 문제 발생함
+
+    compressed_pair<int, int> cp6(one_and_variadic_arg_t{}, 1, 1);
+    compressed_pair<Empty, int> cp7(zero_and_variadic_arg_t{}, 1);
+    compressed_pair<Empty, int> cp8(zero_and_variadic_arg_t{});
+
+    std::cout << sizeof(cp6) << std::endl;
+    std::cout << sizeof(cp7) << std::endl;
+}
+
+void ebco_compressed_pair1() {
+    int n1; // default 초기화. 값은 쓰레기
+    int n2{}; // value 초기화. 값은 0. c++11부터 사용 가능
+
+    // 초기값을 전달하지 않은 경우 모든 데이터는 value 초기화 됨
+    compressed_pair<int, int*> cp(zero_and_variadic_arg_t{});
+    std::cout << cp.getFirst() << std::endl; // value 초기화. 값은 0
+    std::cout << cp.getSecond() << std::endl; // value 초기화. 값은 0
+
+    // 복사 생성자, move 생성자를 구현하지 않을 경우 default 복사 생성자, move 생성자가 제공됨
+    compressed_pair<std::string, std::string> cp1(one_and_variadic_arg_t{}, "A", "B");
+    compressed_pair<std::string, std::string> cp2(cp1); // 복사 생성자
+    compressed_pair<std::string, std::string> cp3(std::move(cp1)); // move 생성자
+
+    std::cout << cp1.getFirst() << ", " << cp1.getSecond() << std::endl;
+    std::cout << cp2.getFirst() << ", " << cp2.getSecond() << std::endl;
+    std::cout << cp3.getFirst() << ", " << cp2.getSecond() << std::endl;
 }
 
 void empty_class() {
@@ -284,4 +342,5 @@ void empty_class() {
     ebco();
     ebco1();
     ebco_compressed_pair();
+    ebco_compressed_pair1();
 }
