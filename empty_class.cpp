@@ -18,7 +18,7 @@ class NoEmpty {
     int data;
 };
 
-void basic() {
+static void basic() {
     Empty e;
     
     std::cout << sizeof(Empty) << std::endl; // 1
@@ -66,7 +66,7 @@ class NE5 { // 참고
     E1 e1;
 };
 
-void empty_class1() {
+static void empty_class1() {
     std::cout << std::boolalpha;
     std::cout << std::is_empty_v<E1> << std::endl;
     std::cout << std::is_empty_v<E2> << std::endl;
@@ -82,7 +82,7 @@ void empty_class1() {
 #include <functional>
 #include <type_traits>
 
-void empty_class2() {
+static void empty_class2() {
     std::plus<int> f1; // 함수 객체로써 ()연산자만 정의되어 있음. empty
     std::modulus<int> f2; // 함수 객체로써 ()연산자만 정의되어 있음. empty
 
@@ -133,7 +133,7 @@ private:
     Mutex& mtx;
 };
 
-void tag_dispatching() {
+static void tag_dispatching() {
     {
         std::mutex m;
         lock_guard g(m);
@@ -154,7 +154,7 @@ void tag_dispatching() {
     }
 }
 
-void tag_dispatching_in_std() {
+static void tag_dispatching_in_std() {
     std::mutex m;
     std::unique_lock u1(m, std::adopt_lock);
     std::unique_lock u2(m, std::defer_lock);
@@ -178,7 +178,7 @@ class Data2 : public Empty {
 };
 
 // Empty Base Class Optimization
-void ebco() {
+static void ebco() {
     // 1byte(Empty e) + 3byte padding + 4byte(int) = 8byte
     std::cout << sizeof(Data1) << std::endl;
     // Empty Class가 Base Class가 되면 최적화 됨
@@ -211,7 +211,7 @@ struct PAIR<T1, T2, true> : public T1 {
     T2 second;
 };
 
-void ebco1() {
+static void ebco1() {
     PAIR<int, int> p1; // <int, int, false>
     PAIR<Empty, int> p2; // <Empty, int, true>
 
@@ -292,7 +292,7 @@ struct compressed_pair<T1, T2, true> : public T1 {
     : T1(), second(std::forward<S>(s)...) {}
 };
 
-void ebco_compressed_pair() {
+static void ebco_compressed_pair() {
     compressed_pair<int, int> p1(3, 4);
     std::string s1 = "AAA";
     std::string s2 = "BBB";
@@ -314,7 +314,7 @@ void ebco_compressed_pair() {
     std::cout << sizeof(cp7) << std::endl;
 }
 
-void ebco_compressed_pair1() {
+static void ebco_compressed_pair1() {
     int n1; // default 초기화. 값은 쓰레기
     int n2{}; // value 초기화. 값은 0. c++11부터 사용 가능
 
