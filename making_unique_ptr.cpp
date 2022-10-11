@@ -50,6 +50,18 @@ public:
             del(p);
         }
     }
+    // unique_ptr은 복사 생성자를 지원하지 않아야 하므로
+    unique_ptr(const unique_ptr&) = delete; 
+    unique_ptr& operator =(const unique_ptr&) = delete;
+
+    // unique_ptr은 move 생성자를 지원해야 하므로
+    unique_ptr(unique_ptr&& up) {}
+
+    unique_ptr& operator =(unique_ptr&& up) {
+        if (this != std::addressof(up)) {
+        }
+        return *this;
+    }
 
     // 참조(&)로 리턴하는 것 참고
     T& operator *() const {return *p;}
@@ -65,7 +77,7 @@ struct Freer {
     }
 };
 
-void making_unique_ptr1() {
+static void making_unique_ptr1() {
     // unique_ptr<Car> p1 = new Car; // error
     unique_ptr<Car> p2(new Car);
 
@@ -78,7 +90,7 @@ void making_unique_ptr1() {
     unique_ptr<int, Freer> p4(static_cast<int*>(malloc(sizeof(int))));
 }
 
-void making_unique_ptr2() {
+static void making_unique_ptr2() {
     // 삭제자에 람다를 넘기고 싶은데, 람다는 타입이 아닌 함수 객체이므로 아래 코드는 에러난다
     // unique_ptr<int, [](int* p) {free(p);}> p1(static_cast<int*>(malloc(sizeof(int))));
 
@@ -101,8 +113,111 @@ void making_unique_ptr2() {
     unique_ptr<int, decltype([](int* p) {free(p);})> p1(static_cast<int*>(malloc(sizeof(int))));
 }
 
+#include <utility>
+#include "compressed_pair.hpp"
+namespace using_compressed_pair {
+    // 디폴트 삭제자도 템플릿으로 만든다
+    template<typename T> struct default_delete {
+        default_delete() = default;
+        template<typename U> default_delete(const default_delete<U>&) {}
+        void operator ()(T* p) const {
+            std::cout << "delete" << std::endl;
+            delete p;
+        }
+    };
+
+    template <typename T, typename D = default_delete<T> > class unique_ptr
+    {
+    public:
+        using pointer = T*;
+        using element_type = T;
+        using deleter_type = D;
+
+        unique_ptr() : cpair(zero_and_variadic_arg_t{}) {}
+        unique_ptr(std::nullptr_t) 			: cpair(zero_and_variadic_arg_t{}) {}
+        explicit unique_ptr(pointer p) 		: cpair(zero_and_variadic_arg_t{}, p) {}
+        unique_ptr(pointer p, const D& d) 	: cpair(one_and_variadic_arg_t{}, d, p) {}
+        unique_ptr(pointer p, D&& d) 		: cpair(one_and_variadic_arg_t{}, std::move(d), p) {}
+
+        ~unique_ptr() { if (cpair.getSecond()) cpair.getFirst()(cpair.getSecond()); }
+
+        T& operator*()       const { return *cpair.getSecond(); }
+        pointer operator->() const { return cpair.getSecond(); }
+
+        // 멤버 함수 추가
+        pointer get() const { return cpair.getSecond(); }
+
+        D& get_deleter()  { return cpair.getFirst(); }
+        const D& get_deleter() const  { return cpair.getFirst(); }
+        explicit operator bool() const { return static_cast<bool>(cpair.getSecond()); }
+        // https://github.com/doxygen/doxygen/issues/8909
+        pointer release()  { return std::exchange(cpair.getSecond(), nullptr); }
+        void reset(pointer ptr = nullptr)
+        {
+            pointer old = std::exchange(cpair.getSecond(), ptr);
+            if (old) {
+                cpair.getFirst()(old);
+            }
+        }
+
+        void swap(unique_ptr& up)
+        {
+            std::swap(cpair.getFirst(),  up.cpair.getFirst());
+            std::swap(cpair.getSecond(), up.cpair.getSecond());
+        }
+
+        // 복사 생성자는 금지시키고
+        unique_ptr(const unique_ptr&) = delete;
+        unique_ptr& operator=(const unique_ptr&) = delete;
+
+        // move 생성자는 지원한다
+        template<typename T2, typename D2>
+        unique_ptr(unique_ptr<T2, D2>&& up)
+            : cpair(one_and_variadic_arg_t{}, std::forward<D2>(up.get_deleter()), up.release()) {}
+
+        template<typename T2, typename D2>
+        unique_ptr& operator=(unique_ptr<T2, D2>&& up)
+        {
+            if (this != std::addressof(up))
+            {
+                reset(up.release());   // pointer
+                cpair.getFirst()() = std::forward<D>(up.cpair.getFirst()); // deleter
+            }
+            return *this;
+        }
+
+    private:
+        compressed_pair<D, pointer> cpair;
+    };
+}
+
+static void making_unique_ptr3() {
+    using_compressed_pair::unique_ptr<int> up1(new int);
+    // using_compressed_pair::unique_ptr<int> up2 = up1; // unique_ptr에서는 복사 생성자는 지원하지 않아야 하므로, 지원하지 않도록 구현해야 함
+    using_compressed_pair::unique_ptr<int> up3 = std::move(up1); // move는 지원해야 하므로 지원하도록 구현해야 함
+}
+
+class Animal {};
+class Dog : public Animal {};
+
+static void making_unique_ptr4() {
+    using_compressed_pair::unique_ptr<int> up1(new int);
+    using_compressed_pair::unique_ptr<int> up2 = std::move(up1);
+
+    using_compressed_pair::unique_ptr<Dog> up3(new Dog);
+    // Animal type과 Dog type이 다르기 때문에 move 생성자가 안먹힌다
+    // move 생성자도 템플릿으로 만들어줘야 한다
+    // 이런 기법을 coercion by member template 이라고 한다
+    // 또한 삭제자도 type에 따라 달라야하기 때문에
+    // default 삭제자도 템플릿으로 만들어줘야 한다
+
+    using_compressed_pair::unique_ptr<Animal> up4 = std::move(up3); // default_delete<Animal>
+}
+
 void making_unique_ptr() {
     basic();
     making_unique_ptr1();
     making_unique_ptr2();
+    making_unique_ptr3();
+    making_unique_ptr4();
 }
