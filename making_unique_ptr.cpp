@@ -126,6 +126,16 @@ namespace using_compressed_pair {
         }
     };
 
+    // 배열 delete를 위해 부분 특수화
+    template<typename T> struct default_delete<T[]> {
+        default_delete() = default;
+        template<typename U> default_delete(const default_delete<U>&) {}
+        void operator ()(T* p) const {
+            std::cout << "delete" << std::endl;
+            delete[] p;
+        }
+    };
+
     template <typename T, typename D = default_delete<T> > class unique_ptr
     {
     public:
@@ -189,6 +199,74 @@ namespace using_compressed_pair {
     private:
         compressed_pair<D, pointer> cpair;
     };
+
+    // 배열 delete를 위해 부분 특수화
+    template <typename T, typename D> class unique_ptr<T[], D>
+    {
+    public:
+        using pointer = T*;
+        using element_type = T;
+        using deleter_type = D;
+
+        unique_ptr() : cpair(zero_and_variadic_arg_t{}) {}
+        unique_ptr(std::nullptr_t) 			: cpair(zero_and_variadic_arg_t{}) {}
+        explicit unique_ptr(pointer p) 		: cpair(zero_and_variadic_arg_t{}, p) {}
+        unique_ptr(pointer p, const D& d) 	: cpair(one_and_variadic_arg_t{}, d, p) {}
+        unique_ptr(pointer p, D&& d) 		: cpair(one_and_variadic_arg_t{}, std::move(d), p) {}
+
+        ~unique_ptr() { if (cpair.getSecond()) cpair.getFirst()(cpair.getSecond()); }
+
+        // 배열은 dereferencing 할 수 없으므로 * 연산자 오버로딩 구현하지 않음
+        // T& operator *()       const { return *cpair.getSecond(); }
+        // 배열은 indexing 해야 하므로 [] 연산자 오버로딩 구현
+        T& operator [](int idx)       const { return cpair.getSecond()[idx]; }
+        pointer operator ->() const { return cpair.getSecond(); }
+
+        // 멤버 함수 추가
+        pointer get() const { return cpair.getSecond(); }
+
+        D& get_deleter()  { return cpair.getFirst(); }
+        const D& get_deleter() const  { return cpair.getFirst(); }
+        explicit operator bool() const { return static_cast<bool>(cpair.getSecond()); }
+        // https://github.com/doxygen/doxygen/issues/8909
+        pointer release()  { return std::exchange(cpair.getSecond(), nullptr); }
+        void reset(pointer ptr = nullptr)
+        {
+            pointer old = std::exchange(cpair.getSecond(), ptr);
+            if (old) {
+                cpair.getFirst()(old);
+            }
+        }
+
+        void swap(unique_ptr& up)
+        {
+            std::swap(cpair.getFirst(),  up.cpair.getFirst());
+            std::swap(cpair.getSecond(), up.cpair.getSecond());
+        }
+
+        // 복사 생성자는 금지시키고
+        unique_ptr(const unique_ptr&) = delete;
+        unique_ptr& operator=(const unique_ptr&) = delete;
+
+        // move 생성자는 지원한다
+        template<typename T2, typename D2>
+        unique_ptr(unique_ptr<T2, D2>&& up)
+            : cpair(one_and_variadic_arg_t{}, std::forward<D2>(up.get_deleter()), up.release()) {}
+
+        template<typename T2, typename D2>
+        unique_ptr& operator=(unique_ptr<T2, D2>&& up)
+        {
+            if (this != std::addressof(up))
+            {
+                reset(up.release());   // pointer
+                cpair.getFirst()() = std::forward<D>(up.cpair.getFirst()); // deleter
+            }
+            return *this;
+        }
+
+    private:
+        compressed_pair<D, pointer> cpair;
+    };
 }
 
 static void making_unique_ptr3() {
@@ -206,12 +284,29 @@ static void making_unique_ptr4() {
 
     using_compressed_pair::unique_ptr<Dog> up3(new Dog);
     // Animal type과 Dog type이 다르기 때문에 move 생성자가 안먹힌다
-    // move 생성자도 템플릿으로 만들어줘야 한다
+    // 따라서 move 생성자도 템플릿으로 만들어줘야 한다
     // 이런 기법을 coercion by member template 이라고 한다
-    // 또한 삭제자도 type에 따라 달라야하기 때문에
-    // default 삭제자도 템플릿으로 만들어줘야 한다
+    // 또한 삭제자도 type에 따라 달라야하기 때문에 default 삭제자도 템플릿으로 만들어줘야 한다
 
     using_compressed_pair::unique_ptr<Animal> up4 = std::move(up3); // default_delete<Animal>
+}
+
+static void making_unique_ptr5() {
+    using_compressed_pair::unique_ptr<int> up1(new int); // delete
+    // 배열 delete를 해야 되는데, 아래와 같이 unique_ptr<int[]> 형식으로 사용하려면
+    // 1. default_delete에서 T[] 형식을 받아들일 수 있도록 부분 특수화 시키자
+    // 2. unique_ptr에서 T[] 형식을 받아들일 수 있도록 부분 특수화 시키자
+    using_compressed_pair::unique_ptr<int[]> up2(new int[10]); // delete[]
+
+    *up1 = 10; // ok
+    // 배열을 de-referencing 하는 것은 불가능해야 하므로,
+    // 배열일 경우에는 * 연산자 오버로딩을 구현 하지 않도록 한다
+    // *up2 = 10;
+
+    // up1[0] = 20;
+    // 배열을 indexing 하는 것은 가능해야 하므로,
+    // 배열일 경우에는 [] 연산자 오버로딩을 구현 하도록 한다
+    up2[0] = 20; // ok
 }
 
 void making_unique_ptr() {
@@ -220,4 +315,5 @@ void making_unique_ptr() {
     making_unique_ptr2();
     making_unique_ptr3();
     making_unique_ptr4();
+    making_unique_ptr5();
 }
