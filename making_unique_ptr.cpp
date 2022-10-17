@@ -94,16 +94,20 @@ static void making_unique_ptr2() {
     // 삭제자에 람다를 넘기고 싶은데, 람다는 타입이 아닌 함수 객체이므로 아래 코드는 에러난다
     // unique_ptr<int, [](int* p) {free(p);}> p1(static_cast<int*>(malloc(sizeof(int))));
 
-    // 아래처럼 decltype()으로 타입을 넘기면 될까?
-    // c++20 이전에는 아래처럼 하면 될 것 같은데,
-    // 그래도 안되는 이유는 람다는 디폴트 생성자가 없기 때문에 
-    // ~unique_ptr() {
-    //     if (p) {
-    //         D del; // 이것이 실패하고, 그래서 안된다
-    //         del(p);
-    //     }
-    // }
-    // 그래서 결국 삭제자를 인자로 받는 unique_ptr의 생성자를 따로 하나 더 만들 수 밖엔 없다
+    // 아래처럼 decltype()으로 타입을 넘기면 될까 싶지만
+    // C++20 이전까지 람다 표현식은 "평가되지 않은(=런타임에 실행되지 않은=컴파일 타임에 실행되는) 표현식"에는 넣을 수 없었다.
+    // decltype()의 경우 컴파일 타임에 실행되는 표현식이기 때문에.. 람다를 넣을 수 없었다.
+    // unique_ptr<int, decltype([](int* p) {free(p);})> p1(static_cast<int*>(malloc(sizeof(int))));
+
+    // 아래처럼 람다를 del 객체에 넣으면, 람다 타입이 컴파일 타임에 결정되기 때문에
+    // 문제가 없이 잘 될 것 같지만, 이것도 안된다.
+    // 왜냐하면 람다에는 디폴트 생성자가 없기 때문에.. 
+    // unique_ptr 내에서 람다 타입을 생성해서 호출하려고 해도, 람다 타입을 생성할 수가 없다
+    // auto del = [](int* p) {free(p);};
+    // unique_ptr<int, decltype(del)> p1(static_cast<int*>(malloc(sizeof(int))));
+
+    // 그래서 결국 삭제자 람다를 인자로 받는 unique_ptr의 생성자를 따로 하나 더 만들 수 밖에 없다
+    // 람다의 경우 복사 생성자는 지원하기 때문에 가능하다
     // auto del = [](int* p) {free(p);};
     // unique_ptr<int, decltype(del)> p1(static_cast<int*>(malloc(sizeof(int))), del);
     // move를 지원하려면 동일하게 unique_ptr의 생성자를 따로 하나 더 만든다
